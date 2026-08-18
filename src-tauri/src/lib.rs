@@ -600,6 +600,9 @@ async fn launch_game(app: AppHandle, tag: String) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     let mut cmd = Command::new(&java);
 
+    #[cfg(target_os = "macos")]
+    cmd.arg("-XstartOnFirstThread");
+
     cmd.current_dir(&save_dir)
         .arg("-noverify")
         .arg(format!("-Djava.library.path={}", natives.display()))

@@ -135,9 +135,15 @@ fn is_runtime_dir(dir: &Path) -> bool {
 }
 
 fn find_files_dir(app: &AppHandle) -> Option<PathBuf> {
+    if let Ok(cwd) = std::env::current_dir() {
+        let candidate = cwd.join("files");
+        if is_runtime_dir(&candidate) {
+            return Some(candidate);
+        }
+    }
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent()?.to_path_buf();
-        for _ in 0..4 {
+        for _ in 0..8 {
             let candidate = dir.join("files");
             if is_runtime_dir(&candidate) {
                 return Some(candidate);
@@ -542,6 +548,7 @@ fn native_dir(files_dir: &Path, save_dir: &Path) -> Result<PathBuf, String> {
     }
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = save_dir;
         Ok(files_dir.join("natives"))
     }
 }
@@ -549,7 +556,7 @@ fn native_dir(files_dir: &Path, save_dir: &Path) -> Result<PathBuf, String> {
 #[tauri::command]
 async fn launch_game(app: AppHandle, tag: String) -> Result<(), String> {
     let files_dir = effective_files_dir(&app).ok_or(
-        "Could not locate the files/ runtime folder (libs, natives, assets).\
+        "Could not locate the files/ runtime folder (libs, natives, assets). \
          Keep the app next to your files/ folder, or pick it in Settings → Runtime folder.",
     )?;
     let root = data_root(&app);

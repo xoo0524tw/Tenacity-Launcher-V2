@@ -4,3 +4,4 @@ src-tauri/target/
 save/
 versions/
 *.log
+files/assets/skins/

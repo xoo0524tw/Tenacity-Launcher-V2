@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 const DISCORD_INVITE = "https://discord.gg/BrF6sfsaBp";
@@ -84,7 +85,7 @@ function renderInstalled() {
 
     const play = document.createElement("button");
     play.className = "btn-mini btn-play-mini";
-    play.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.5.86z"></path></svg>Play`;
+    play.innerHTML = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.14v13.72a1 1 0 0 0 1.5.86l11-6.86a1 1 0 0 0 0-1.72l-11-6.86a1 1 0 0 0-1.5.86z"></path></svg>Select`;
     play.addEventListener("click", () => selectVersion(tag));
     actions.appendChild(play);
 
@@ -274,9 +275,134 @@ function setupDiscord() {
   });
 }
 
+function setStatus(el, text, kind = "") {
+  el.textContent = text;
+  el.className = "setting-status" + (kind ? ` ${kind}` : "");
+}
+
+async function refreshSettings() {
+  try {
+    const java = await invoke("get_java_status");
+    if (java.path) {
+      setStatus(
+        $("#java-status"),
+        `${java.source}\n${java.path}\n${java.version}`,
+        "ok",
+      );
+    } else {
+      setStatus(
+        $("#java-status"),
+        "No Java found — the launcher needs Java 8. Install one, or pick it manually.",
+        "err",
+      );
+    }
+  } catch (err) {
+    setStatus($("#java-status"), `Error: ${err}`, "err");
+  }
+  try {
+    const files = await invoke("get_files_dir");
+    setStatus($("#files-status"), files, "ok");
+  } catch (err) {
+    setStatus($("#files-status"), `${err}`, "err");
+  }
+}
+
+function setupSettings() {
+  const overlay = $("#settings-overlay");
+
+  $("#settings-btn").addEventListener("click", () => {
+    overlay.hidden = false;
+    refreshSettings();
+  });
+  $("#settings-close").addEventListener("click", () => {
+    overlay.hidden = true;
+  });
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.hidden = true;
+  });
+
+  $("#java-browse").addEventListener("click", async () => {
+    try {
+      const sel = await open({ multiple: false, title: "Select the java executable" });
+      if (!sel) return;
+      const info = await invoke("set_java_path", { path: sel });
+      setStatus(
+        $("#java-status"),
+        `${info.source}\n${info.path}\n${info.version}`,
+        "ok",
+      );
+      log(`Java set to ${info.path} (${info.version}).`, "ok");
+    } catch (err) {
+      setStatus($("#java-status"), `Error: ${err}`, "err");
+    }
+  });
+
+  $("#java-auto").addEventListener("click", async () => {
+    try {
+      const info = await invoke("auto_detect_java");
+      if (!info.path) {
+        setStatus(
+          $("#java-status"),
+          "No Java runtime was found on this system.",
+          "err",
+        );
+        return;
+      }
+      await invoke("set_java_path", { path: info.path });
+      setStatus(
+        $("#java-status"),
+        `${info.source}\n${info.path}\n${info.version}`,
+        "ok",
+      );
+      log(`Java auto-detected: ${info.path} (${info.version}).`, "ok");
+    } catch (err) {
+      setStatus($("#java-status"), `Error: ${err}`, "err");
+    }
+  });
+
+  $("#java-reset").addEventListener("click", async () => {
+    try {
+      const info = await invoke("set_java_path", { path: null });
+      setStatus(
+        $("#java-status"),
+        info.path
+          ? `${info.source}\n${info.path}\n${info.version}`
+          : "Using default resolution (bundled or system Java).",
+        info.path ? "ok" : "",
+      );
+    } catch (err) {
+      setStatus($("#java-status"), `Error: ${err}`, "err");
+    }
+  });
+
+  $("#files-browse").addEventListener("click", async () => {
+    try {
+      const sel = await open({ directory: true, multiple: false, title: "Select the files/ runtime folder" });
+      if (!sel) return;
+      const path = await invoke("set_files_dir", { path: sel });
+      setStatus($("#files-status"), path, "ok");
+      log(`Runtime folder set to ${path}.`, "ok");
+      await loadInstalled();
+    } catch (err) {
+      setStatus($("#files-status"), `Error: ${err}`, "err");
+    }
+  });
+
+  $("#files-reset").addEventListener("click", async () => {
+    try {
+      const path = await invoke("set_files_dir", { path: null });
+      setStatus($("#files-status"), path, "ok");
+      await loadInstalled();
+    } catch (err) {
+      setStatus($("#files-status"), `Error: ${err}`, "err");
+    }
+  });
+}
+
 async function init() {
   setupTheme();
   setupDiscord();
+  setupSettings();
 
   log("Tenacity Launcher v2.0.0");
   log("Loading local versions…");

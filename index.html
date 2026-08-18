@@ -23,6 +23,12 @@
           </div>
         </div>
         <div class="topbar-actions">
+          <button id="settings-btn" class="icon-btn" title="Settings" aria-label="Settings">
+            <svg class="icon-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+          </button>
           <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
             <svg id="icon-sun" class="icon-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="4"></circle>
@@ -94,6 +100,37 @@
         </aside>
       </main>
     </div>
+
+    <div id="settings-overlay" class="overlay" hidden>
+      <div class="overlay-card">
+        <div class="overlay-head">
+          <h2>SETTINGS</h2>
+          <button id="settings-close" class="overlay-close" title="Close">×</button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">JAVA RUNTIME</span>
+            <p id="java-status" class="setting-status">Checking…</p>
+          </div>
+          <div class="setting-actions">
+            <button id="java-browse" class="btn-mini">Browse…</button>
+            <button id="java-auto" class="btn-mini">Auto-detect</button>
+            <button id="java-reset" class="btn-mini btn-mini-danger">Reset</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-label">RUNTIME FOLDER (files/)</span>
+            <p id="files-status" class="setting-status">Checking…</p>
+          </div>
+          <div class="setting-actions">
+            <button id="files-browse" class="btn-mini">Browse…</button>
+            <button id="files-reset" class="btn-mini btn-mini-danger">Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

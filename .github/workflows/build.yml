@@ -50,7 +50,14 @@ jobs:
           npm rebuild esbuild
 
       - name: Build
+        if: runner.os != 'macOS'
         run: npm run tauri build
+
+      - name: Build macOS universal (Intel + Apple Silicon)
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          npm run tauri build -- --target universal-apple-darwin
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -59,6 +66,7 @@ jobs:
           path: |
             src-tauri/target/release/bundle/**/*
             src-tauri/target/release/tenacity-launcher*
+            src-tauri/target/universal-apple-darwin/release/bundle/**/*
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')

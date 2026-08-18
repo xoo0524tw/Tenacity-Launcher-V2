@@ -291,6 +291,19 @@ async function init() {
 
   listen("versions-changed", () => loadInstalled());
 
+  listen("game-output", (event) => {
+    const { line, kind } = event.payload;
+    log(line, kind === "err" ? "err" : "");
+  });
+
+  listen("game-exited", (event) => {
+    const { tag, code } = event.payload;
+    log(`Tenacity ${tag} exited with code ${code ?? "?"}.`, code === 0 ? "ok" : "err");
+    launchBtn.disabled = !state.selected;
+    launchStatus.className = "launch-status";
+    launchStatus.textContent = "Game closed";
+  });
+
   launchBtn.addEventListener("click", launchGame);
 }
 

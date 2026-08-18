@@ -46,6 +46,18 @@ struct DownloadProgress {
     total: u64,
 }
 
+#[derive(Serialize, Clone)]
+struct GameOutput {
+    line: String,
+    kind: String,
+}
+
+#[derive(Serialize, Clone)]
+struct GameExit {
+    tag: String,
+    code: Option<i32>,
+}
+
 #[derive(serde::Deserialize)]
 struct GhAsset {
     name: String,
@@ -404,6 +416,12 @@ async fn launch_game(app: AppHandle, tag: String) -> Result<(), String> {
     let save_dir = root.join("save");
     fs::create_dir_all(&save_dir).map_err(|e| e.to_string())?;
 
+    let alts = save_dir.join("Tenacity").join("Alts.json");
+    if !alts.exists() {
+        fs::create_dir_all(alts.parent().unwrap()).map_err(|e| e.to_string())?;
+        fs::write(&alts, "[]").map_err(|e| format!("Failed to create Alts.json: {e}"))?;
+    }
+
     let java = resolve_java(&files_dir)?;
     let jar = versions_dir(&app).join(&tag).join(JAR);
     if !jar.exists() {
@@ -447,14 +465,64 @@ async fn launch_game(app: AppHandle, tag: String) -> Result<(), String> {
         .arg("--width")
         .arg("854")
         .arg("--height")
-        .arg("480");
+        .arg("480")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
 
     let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to launch the game: {e}"))?;
-    drop(child);
-    let _ = app.emit("game-launched", tag);
+    let _ = app.emit("game-launched", tag.clone());
+
+    forward_output(app.clone(), tag.clone(), child);
     Ok(())
+}
+
+fn forward_output(app: AppHandle, tag: String, mut child: std::process::Child) {
+    use std::io::{BufRead, BufReader};
+
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    if let Some(out) = stdout {
+        let app_io = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let reader = BufReader::new(out);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    let _ = app_io.emit(
+                        "game-output",
+                        GameOutput {
+                            line,
+                            kind: "out".into(),
+                        },
+                    );
+                }
+            }
+        });
+    }
+    if let Some(err) = stderr {
+        let app_io = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let reader = BufReader::new(err);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    let _ = app_io.emit(
+                        "game-output",
+                        GameOutput {
+                            line,
+                            kind: "err".into(),
+                        },
+                    );
+                }
+            }
+        });
+    }
+
+    tauri::async_runtime::spawn(async move {
+        let code = child.wait().ok().and_then(|s| s.code());
+        let _ = app.emit("game-exited", GameExit { tag, code });
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -433,7 +433,16 @@ async fn launch_game(app: AppHandle, tag: String) -> Result<(), String> {
     let assets = files_dir.join("assets");
 
     let sep = if cfg!(target_os = "windows") { ";" } else { ":" };
-    let classpath = format!("{}{}{}*", jar.display(), sep, libs.display());
+    let mut classpath = jar.display().to_string();
+    if let Ok(entries) = fs::read_dir(&libs) {
+        for entry in entries.flatten() {
+            if entry.path().extension().is_some_and(|e| e == "jar") {
+                classpath.push_str(&format!("{sep}{}", entry.path().display()));
+            }
+        }
+    } else {
+        return Err(format!("Could not read libs folder: {}", libs.display()));
+    }
 
     #[cfg(target_os = "macos")]
     let mut cmd = {
@@ -466,8 +475,23 @@ async fn launch_game(app: AppHandle, tag: String) -> Result<(), String> {
         .arg("854")
         .arg("--height")
         .arg("480")
+        .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    let _ = app.emit(
+        "game-output",
+        GameOutput {
+            line: format!("Launching: {} {}", java.display(), classpath),
+            kind: "out".into(),
+        },
+    );
 
     let child = cmd
         .spawn()

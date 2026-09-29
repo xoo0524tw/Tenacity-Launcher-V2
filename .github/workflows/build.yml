@@ -36,8 +36,7 @@ jobs:
             libssl-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf \
-            libfuse2
+            patchelf
 
       - uses: actions/setup-node@v4
         with:
@@ -89,5 +88,4 @@ jobs:
             artifacts/**/*.exe
             artifacts/**/*.deb
             artifacts/**/*.rpm
-            artifacts/**/*.AppImage
           generate_release_notes: true

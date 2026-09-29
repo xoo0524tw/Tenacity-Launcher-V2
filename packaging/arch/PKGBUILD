@@ -1,0 +1,38 @@
+# Maintainer: Tenacity Launcher V2
+# This file is part of the Tenacity-Launcher-V2 repository.
+#
+# NOTE: the .deb below is fetched from the GitHub release for this tag.
+#   1. bump `pkgver` when you cut a new release tag (v<pkgver>)
+#   2. copy the published deb's sha256 into `sha256sums` (AUR rejects SKIP)
+#   3. push this PKGBUILD to your AUR repo, then `makepkg -si`
+
+pkgname=tenacity-launcher
+pkgver=2.0.0
+pkgrel=1
+pkgdesc="Launcher and version manager for the Tenacity Minecraft 1.8.9 client"
+arch=('x86_64')
+url="https://github.com/xoo0524tw/Tenacity-Launcher-V2"
+license=('AGPL-3.0-only')
+depends=('webkit2gtk-4.1' 'gtk3' 'libsoup3' 'alsa-lib' 'libxss' 'openssl')
+optdepends=('java-runtime: bundled Java 8 runtime is used automatically'
+            'discord: in-game Rich Presence')
+provides=('tenacity-launcher')
+conflicts=('tenacity-launcher-git')
+options=('!strip')
+
+source=("https://github.com/xoo0524tw/Tenacity-Launcher-V2/releases/download/v${pkgver}/Tenacity%20Launcher_${pkgver}_amd64.deb")
+sha256sums=('SKIP')
+
+package() {
+  # Unpack the deb (ar archive: debian-binary + control.tar.* + data.tar.*)
+  # straight into the package root. Layout and paths are exactly what the
+  # upstream .deb installs, so resource resolution matches our own bundles.
+  bsdtar -xf "${srcdir}/Tenacity Launcher_${pkgver}_amd64.deb" -C "${srcdir}"
+  bsdtar -xf "${srcdir}"/data.tar.* -C "${pkgdir}"
+
+  # Tauri ships the runtime payload under /usr/lib; keep it world-readable.
+  if [ -d "${pkgdir}/usr/lib" ]; then
+    find "${pkgdir}/usr/lib" -type d -exec chmod 755 {} +
+    find "${pkgdir}/usr/lib" -type f -exec chmod 644 {} +
+  fi
+}

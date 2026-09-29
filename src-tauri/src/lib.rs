@@ -19,10 +19,12 @@ const MAC_NATIVE_JARS: [&str; 3] = [
     "twitch-platform-6.5-natives-osx.jar",
 ];
 
-#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
-struct LauncherConfig {
-    java_path: Option<String>,
-    files_dir: Option<String>,
+#[derive(Serialize, Clone)]
+struct RuntimeInfo {
+    files_dir: String,
+    java_path: String,
+    java_source: String,
+    java_version: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -65,13 +67,6 @@ struct GameExit {
     code: Option<i32>,
 }
 
-#[derive(Serialize, Clone)]
-struct JavaInfo {
-    path: String,
-    version: String,
-    source: String,
-}
-
 #[derive(serde::Deserialize)]
 struct GhAsset {
     name: String,
@@ -105,33 +100,14 @@ fn bundled_jre_candidates() -> &'static [&'static str] {
     ]
 }
 
-fn config_path(app: &AppHandle) -> PathBuf {
-    app.path()
-        .app_data_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .join("launcher-config.json")
-}
-
-fn load_config(app: &AppHandle) -> LauncherConfig {
-    let p = config_path(app);
-    fs::read_to_string(&p)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
-}
-
-fn save_config(app: &AppHandle, cfg: &LauncherConfig) {
-    let p = config_path(app);
-    if let Some(dir) = p.parent() {
-        let _ = fs::create_dir_all(dir);
-    }
-    if let Ok(s) = serde_json::to_string_pretty(cfg) {
-        let _ = fs::write(&p, s);
-    }
-}
-
 fn is_runtime_dir(dir: &Path) -> bool {
-    dir.join("libs").is_dir() && dir.join("natives").is_dir() && dir.join("assets").is_dir()
+    dir.join("libs").is_dir() && dir.join("natives").is_dir()
+}
+
+/// The `files/` payload shipped inside the app bundle/installer.
+fn bundled_files_dir(app: &AppHandle) -> Option<PathBuf> {
+    let candidate = app.path().resource_dir().ok()?.join("files");
+    is_runtime_dir(&candidate).then_some(candidate)
 }
 
 fn find_files_dir(app: &AppHandle) -> Option<PathBuf> {
@@ -153,11 +129,8 @@ fn find_files_dir(app: &AppHandle) -> Option<PathBuf> {
             }
         }
     }
-    if let Ok(res) = app.path().resource_dir() {
-        let candidate = res.join("files");
-        if is_runtime_dir(&candidate) {
-            return Some(candidate);
-        }
+    if let Some(candidate) = bundled_files_dir(app) {
+        return Some(candidate);
     }
     if let Some(docs) = dirs_documents() {
         let candidate = docs.join("Tenacity-Launcher").join("files");
@@ -174,14 +147,11 @@ fn find_files_dir(app: &AppHandle) -> Option<PathBuf> {
     None
 }
 
-fn effective_files_dir(app: &AppHandle) -> Option<PathBuf> {
-    if let Some(p) = load_config(app).files_dir {
-        let p = PathBuf::from(p);
-        if is_runtime_dir(&p) {
-            return Some(p);
-        }
-    }
-    find_files_dir(app)
+fn is_bundled_files(app: &AppHandle, files: &Path) -> bool {
+    app.path()
+        .resource_dir()
+        .map(|res| files.starts_with(res))
+        .unwrap_or(false)
 }
 
 fn dirs_documents() -> Option<PathBuf> {
@@ -194,15 +164,23 @@ fn dirs_documents() -> Option<PathBuf> {
     None
 }
 
-fn data_root(app: &AppHandle) -> PathBuf {
-    if let Some(files) = effective_files_dir(app) {
-        if let Some(parent) = files.parent() {
-            return parent.to_path_buf();
-        }
-    }
+fn app_data_dir(app: &AppHandle) -> PathBuf {
     app.path()
         .app_data_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
+}
+
+fn data_root(app: &AppHandle) -> PathBuf {
+    match find_files_dir(app) {
+        // The bundled payload lives inside the install folder, which is
+        // read-only on macOS/Linux, so user data goes to the app data dir.
+        Some(files) if is_bundled_files(app, &files) => app_data_dir(app),
+        Some(files) => files
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| app_data_dir(app)),
+        None => app_data_dir(app),
+    }
 }
 
 fn versions_dir(app: &AppHandle) -> PathBuf {
@@ -499,13 +477,7 @@ fn detect_system_java() -> Option<(PathBuf, String)> {
 }
 
 fn resolve_java(app: &AppHandle) -> Result<(PathBuf, String), String> {
-    if let Some(p) = load_config(app).java_path {
-        let p = PathBuf::from(p);
-        if let Some(ver) = java_version(&p) {
-            return Ok((p, format!("configured ({ver})")));
-        }
-    }
-    if let Some(files) = effective_files_dir(app) {
+    if let Some(files) = find_files_dir(app) {
         if let Some(java) = bundled_java(&files) {
             if let Some(ver) = java_version(&java) {
                 return Ok((java, format!("bundled ({ver})")));
@@ -515,7 +487,7 @@ fn resolve_java(app: &AppHandle) -> Result<(PathBuf, String), String> {
     if let Some((p, ver)) = detect_system_java() {
         return Ok((p, format!("auto-detected ({ver})")));
     }
-    Err("No Java runtime found. Install Java 8 or pick one in Settings → Java.".into())
+    Err("No Java runtime found. Reinstall the launcher to restore the bundled Java 8.".into())
 }
 
 #[cfg(target_os = "macos")]
@@ -555,10 +527,8 @@ fn native_dir(files_dir: &Path, save_dir: &Path) -> Result<PathBuf, String> {
 
 #[tauri::command]
 async fn launch_game(app: AppHandle, tag: String) -> Result<(), String> {
-    let files_dir = effective_files_dir(&app).ok_or(
-        "Could not locate the files/ runtime folder (libs, natives, assets). \
-         Keep the app next to your files/ folder, or pick it in Settings → Runtime folder.",
-    )?;
+    let files_dir = find_files_dir(&app)
+        .ok_or("Could not locate the bundled files/ folder. Please reinstall the launcher.")?;
     let root = data_root(&app);
     let save_dir = root.join("save");
     fs::create_dir_all(&save_dir).map_err(|e| e.to_string())?;
@@ -700,101 +670,36 @@ fn forward_output(app: AppHandle, tag: String, mut child: std::process::Child) {
 }
 
 #[tauri::command]
-fn get_java_status(app: AppHandle) -> JavaInfo {
-    match resolve_java(&app) {
-        Ok((path, source)) => JavaInfo {
-            version: java_version(&path).unwrap_or_default(),
-            path: path.display().to_string(),
-            source,
-        },
-        Err(_) => JavaInfo {
-            path: String::new(),
-            version: String::new(),
-            source: "none".into(),
-        },
-    }
-}
-
-#[tauri::command]
-fn auto_detect_java() -> JavaInfo {
-    match detect_system_java() {
-        Some((path, version)) => JavaInfo {
-            path: path.display().to_string(),
-            version,
-            source: "auto-detected".into(),
-        },
-        None => JavaInfo {
-            path: String::new(),
-            version: String::new(),
-            source: "none".into(),
-        },
-    }
-}
-
-#[tauri::command]
-fn set_java_path(app: AppHandle, path: Option<String>) -> Result<JavaInfo, String> {
-    let mut cfg = load_config(&app);
-    cfg.java_path = match &path {
-        Some(p) if !p.is_empty() => {
-            let p = PathBuf::from(p);
-            if !p.is_file() {
-                return Err("The selected Java file does not exist.".into());
-            }
-            if java_version(&p).is_none() {
-                return Err("The selected file is not a working Java executable.".into());
-            }
-            Some(p.display().to_string())
+fn runtime_status(app: AppHandle) -> RuntimeInfo {
+    let files_dir = find_files_dir(&app)
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+    let (path, source, ver) = match resolve_java(&app) {
+        Ok((p, source)) => {
+            let ver = java_version(&p).unwrap_or_default();
+            (p.display().to_string(), source, ver)
         }
-        _ => None,
+        Err(_) => (String::new(), "none".to_string(), String::new()),
     };
-    save_config(&app, &cfg);
-    Ok(get_java_status(app))
-}
-
-#[tauri::command]
-fn get_files_dir(app: AppHandle) -> Result<String, String> {
-    match effective_files_dir(&app) {
-        Some(f) => Ok(f.display().to_string()),
-        None => Err("files/ runtime folder not found. Keep the app next to your files/ folder, or pick it in Settings → Runtime folder.".into()),
+    RuntimeInfo {
+        files_dir,
+        java_path: path,
+        java_source: source,
+        java_version: ver,
     }
-}
-
-#[tauri::command]
-fn set_files_dir(app: AppHandle, path: Option<String>) -> Result<String, String> {
-    let mut cfg = load_config(&app);
-    cfg.files_dir = match &path {
-        Some(p) if !p.is_empty() => {
-            let p = PathBuf::from(p);
-            if !is_runtime_dir(&p) {
-                return Err(
-                    "That folder is not a valid files/ runtime (needs libs, natives and assets)."
-                        .into(),
-                );
-            }
-            Some(p.display().to_string())
-        }
-        _ => None,
-    };
-    save_config(&app, &cfg);
-    get_files_dir(app)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_releases,
             install_version,
             list_installed,
             delete_version,
             launch_game,
-            get_java_status,
-            auto_detect_java,
-            set_java_path,
-            get_files_dir,
-            set_files_dir
+            runtime_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
